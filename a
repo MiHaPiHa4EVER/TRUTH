@@ -1,1 +1,216 @@
-a
+// Shape always starts at center. Morphs/rotates smoothly between "left", "right", and "center (up)" states. No snapping.
+
+let canvasSize = 1000;
+let baseX = canvasSize / 2, baseY = canvasSize / 2;
+let squareSize = 360;
+const N = 4; // segments per edge
+
+// Animation parameters
+// 0 = left, 0.5 = center (up), 1 = right
+let state = 0.5; // START AT CENTER (UP)
+let targetState = 0.5;
+let animating = false;
+let animSpeed = 0.012;
+
+// Clickable region helpers (L2, R2, T2/T3)
+function inL2(mx, my) {
+  return mx >= 0 && mx <= 0.25 * canvasSize && my >= 0.25 * canvasSize && my < 0.5 * canvasSize;
+}
+function inR2(mx, my) {
+  return mx >= 0.75 * canvasSize && mx <= canvasSize && my >= 0.25 * canvasSize && my < 0.5 * canvasSize;
+}
+function inT2T3(mx, my) {
+  return my >= 0 && my <= 0.25 * canvasSize && mx >= 0.25 * canvasSize && mx < 0.75 * canvasSize;
+}
+
+function setup() {
+  createCanvas(canvasSize, canvasSize);
+  textAlign(CENTER, CENTER);
+  textSize(22);
+  noStroke();
+}
+
+function draw() {
+  background(30);
+  drawReference();
+  drawLabels();
+
+  // Animation
+  if (animating) {
+    if (abs(state - targetState) < animSpeed) {
+      state = targetState;
+      animating = false;
+    } else if (state < targetState) {
+      state += animSpeed;
+    } else if (state > targetState) {
+      state -= animSpeed;
+    }
+  }
+
+  drawShip(baseX, baseY, state);
+
+  // Status text
+  fill(255);
+  let msg = "";
+  if (animating) {
+    if (targetState === 0) msg = "Morphing left...";
+    else if (targetState === 1) msg = "Morphing right...";
+    else msg = "Morphing up...";
+  } else {
+    if (state < 0.01) msg = "Left";
+    else if (state > 0.99) msg = "Right";
+    else msg = "Center (Up)";
+  }
+  text(msg, width / 2, height - 60);
+}
+
+function mousePressed() {
+  if (inL2(mouseX, mouseY)) {
+    if (targetState !== 0) {
+      targetState = 0;
+      animating = true;
+    }
+  } else if (inR2(mouseX, mouseY)) {
+    if (targetState !== 1) {
+      targetState = 1;
+      animating = true;
+    }
+  } else if (inT2T3(mouseX, mouseY)) {
+    if (targetState !== 0.5) {
+      targetState = 0.5;
+      animating = true;
+    }
+  }
+}
+
+function drawReference() {
+  // Yellow border
+  stroke(255, 255, 0, 100);
+  strokeWeight(4);
+  noFill();
+  rect(0, 0, width, height);
+
+  // Yellow lines
+  stroke(255, 255, 0, 148);
+  strokeWeight(2.3);
+  for (let theta of [
+    0, Math.PI / 8, Math.PI / 4, Math.PI * 3 / 8,
+    Math.PI / 2, Math.PI * 5 / 8, Math.PI * 3 / 4, Math.PI * 7 / 8
+  ]) {
+    let x1 = baseX + canvasSize * Math.cos(theta);
+    let y1 = baseY + canvasSize * Math.sin(theta);
+    let x2 = baseX - canvasSize * Math.cos(theta);
+    let y2 = baseY - canvasSize * Math.sin(theta);
+    line(x1, y1, x2, y2);
+  }
+}
+
+function drawLabels() {
+  fill(255, 255, 0);
+  noStroke();
+  let segLen = height / N;
+  let segLenW = width / N;
+  for (let i = 0; i < N; i++) {
+    let yMid = segLen * (i + 0.5);
+    text(`L${i + 1}`, 28, yMid);
+    text(`R${i + 1}`, width - 28, yMid);
+    let xMid = segLenW * (i + 0.5);
+    text(`T${i + 1}`, xMid, 28);
+    text(`B${i + 1}`, xMid, height - 28);
+  }
+}
+
+function drawShip(x, y, state) {
+  // Morph/rotate between left, center (up), right, always centered
+  // left: state=0, up: state=0.5, right: state=1
+  let half = squareSize / 2;
+  // Trapezoid inset: 0 (square) at center, max at sides
+  let inset = lerp(squareSize * 0.45, 0, 1 - 2 * abs(state - 0.5));
+  // Rotation: -PI/4 at left, 0 at center, +PI/4 at right
+  let rotation = lerp(-PI / 4, PI / 4, state);
+
+  let A = createVector(-half + inset, -half);
+  let B = createVector(half, -half);
+  let C = createVector(half, half);
+  let D = createVector(-half + inset, half);
+
+  let shrink = lerp(100, 0, 1 - 2 * abs(state - 0.5));
+  let ADdir = p5.Vector.sub(D, A).normalize();
+  let A_shrunk = p5.Vector.add(A, ADdir.copy().mult(shrink / 2));
+  let D_shrunk = p5.Vector.sub(D, ADdir.copy().mult(shrink / 2));
+
+  let pts = [A_shrunk, B, C, D_shrunk].map(pt => rotatePt(pt, rotation));
+  let centroid = getCentroid(pts);
+
+  push();
+  translate(x - centroid.x, y - centroid.y);
+
+  // infinite A-D line
+  stroke(255, 80, 80, 110);
+  strokeWeight(3);
+  let adVec = p5.Vector.sub(pts[3], pts[0]).normalize();
+  let big = canvasSize * 2;
+  let midAD = p5.Vector.add(pts[0], pts[3]).mult(0.5);
+  let infA = p5.Vector.add(midAD, adVec.copy().mult(-big));
+  let infD = p5.Vector.add(midAD, adVec.copy().mult(big));
+  line(infA.x, infA.y, infD.x, infD.y);
+
+  // blue area
+  fill(50, 130, 255, 220);
+  stroke(0, 70, 180);
+  strokeWeight(5);
+  beginShape();
+  for (let p of pts) vertex(p.x, p.y);
+  endShape(CLOSE);
+
+  // ellipse at centroid
+  fill(255, 255, 0);
+  noStroke();
+  ellipse(centroid.x, centroid.y, 24, 24);
+
+  // center axis lines and labeling points
+  let center = createVector(0, 0);
+  stroke(255, 180, 100, 120);
+  strokeWeight(4);
+  let axisLen = lerp(half * 1.2, half * 0.5, 1 - 2 * abs(state - 0.5));
+  line(center.x, center.y, center.x, center.y - axisLen);
+
+  stroke(220, 80, 80, 120); strokeWeight(3);
+  line(center.x, center.y, center.x - half * 1.2, center.y);
+  stroke(80, 220, 80, 120); strokeWeight(3);
+  line(center.x, center.y, center.x + half * 1.2, center.y);
+
+  fill(255, 50, 50); noStroke();
+  let labels = ["A", "B", "C", "D"];
+  let labelOffsets = [
+    [-28, -12],
+    [28, -12],
+    [28, 12],
+    [-28, 12]
+  ];
+  for (let i = 0; i < pts.length; i++) {
+    ellipse(pts[i].x, pts[i].y, 18, 18);
+    fill(255);
+    textSize(24);
+    text(labels[i], pts[i].x + labelOffsets[i][0], pts[i].y + labelOffsets[i][1]);
+    fill(255, 50, 50);
+  }
+
+  pop();
+}
+
+// --- Helpers ---
+function rotatePt(pt, theta) {
+  let x = pt.x * cos(theta) - pt.y * sin(theta);
+  let y = pt.x * sin(theta) + pt.y * cos(theta);
+  return createVector(x, y);
+}
+
+function getCentroid(pts) {
+  let cx = 0, cy = 0;
+  for (let i = 0; i < pts.length; i++) {
+    cx += pts[i].x;
+    cy += pts[i].y;
+  }
+  return createVector(cx / pts.length, cy / pts.length);
+}
